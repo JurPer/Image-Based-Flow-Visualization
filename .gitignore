@@ -5,6 +5,7 @@
 
 # My files and folders to ignore
 out/
+build/
 flow.raw
 
 # User-specific files
