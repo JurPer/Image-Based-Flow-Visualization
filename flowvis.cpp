@@ -361,7 +361,6 @@ QVector2D FlowVis::heun(float stepSize, QVector2D position) {
 	QVector2D speed = getFlowVector(position.x(), position.y(), timeCell);
 
 	result = position + stepSize * getFlowVector(position.x(), position.y(), timeCell);
-	// TODO: timecell + stepsize?
 	QVector2D speedNext = getFlowVector(result.x(), result.y(), timeCell + stepSize);
 
 	result = position + (stepSize * 0.5 * (speed + speedNext));
