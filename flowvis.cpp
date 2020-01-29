@@ -19,13 +19,13 @@ FlowVis::FlowVis() :
 	_time_cell_in_texture(-1),
 	_first_iteration(true),
 	_meshIteration(false),
-	_time_is_passing(false),
+	_time_is_passing(true),
 	_blendOn(true),
 	_indexCount(0),
 	_vaoMesh(0),
 	_indexCountMesh(0),
 	_nMesh(20),
-	_stepSize(0.8f),
+	_stepSize(0.5f),
 	_screenWidth(800),
 	_screenHeight(600)
 {
@@ -87,23 +87,46 @@ void FlowVis::initializeGL()
 	_vaoQuad = Cg::createVertexArrayObject(pos, norm, texco, indic);
 	CG_ASSERT_GLCHECK();
 
-	// Set up texture
-	glGenTextures(1, &_texture);
-	glBindTexture(GL_TEXTURE_2D, _texture);
+	// create a sparse noise texture that marks critical points
+	unsigned int texture;
+	glGenTextures(1, &texture);
+	glBindTexture(GL_TEXTURE_2D, texture);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 	glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 	CG_ASSERT_GLCHECK();
 
-	// Load images into textures
+	QVector<float> vectorsRGBA;
+	QVector<float> rgba(4, 1.0f);	
+	// initialize random seed
+	srand(time(NULL));
+	for (int y = 0; y < _y_cells; y++) {
+		for (int x = 0; x < _x_cells; x++) {
+			float length = getFlowVector(_time_cell, y, x).length();
+			// critical point if vector length zero
+			if (length <= 0.01)
+				rgba = { 1.0f, 0.0f, 0.0f, 1.0f };
+			else if (rand() % 100 < 1) {
+				rgba = { 0.0f, 1.0f, 0.0f, 1.0f };
+			}
+			else
+				rgba = { 0.0f, 0.0f, 0.0f, 1.0f };
+			vectorsRGBA += rgba;
+		}
+	}
+	glBindTexture(GL_TEXTURE_2D, texture);
+	glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, _x_cells, _y_cells, 0, GL_RGBA, GL_FLOAT, vectorsRGBA.data());
+
+	// Load images into textures QVector to cycle through later
+	_texImages.append(Cg::loadTexture(":/img/seeding_points", false, false));
+	_texImages.append(texture);
 	_texImages.append(Cg::loadTexture(":/img/whiteNoise", false, false));
+	_texImages.append(Cg::loadTexture(":/img/whiteNoiseResized", false, false));
+	_texImages.append(Cg::loadTexture(":/img/perlinNoise", false, false));
+	_texImages.append(Cg::loadTexture(":/img/simplexNoise", false, false));
 	_texImages.append(Cg::loadTexture(":/img/grid_biggest", false, false));
 	_texImages.append(Cg::loadTexture(":/img/grid_big", false, false));
 	_texImages.append(Cg::loadTexture(":/img/grid", false, false));
-	_texImages.append(Cg::loadTexture(":/img/whiteNoiseResized", false, false));
 	_texImages.append(Cg::loadTexture(":/img/checkerBoard", false, false));
-	_texImages.append(Cg::loadTexture(":/img/maze", false, false));
-	_texImages.append(Cg::loadTexture(":/img/perlinNoise", false, false));
-	_texImages.append(Cg::loadTexture(":/img/simplexNoise", false, false));
 	_currentImage = _texImages[0];
 	CG_ASSERT_GLCHECK();
 
@@ -140,7 +163,7 @@ void FlowVis::initializeGL()
 	for (GLuint i = 0; i < 2; i++) {
 		glBindFramebuffer(GL_FRAMEBUFFER, _meshFB[i]);
 		glBindTexture(GL_TEXTURE_2D, _meshTexture[i]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, GL_LINEAR);
 		glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_REPEAT);
@@ -195,7 +218,7 @@ void FlowVis::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
 	if (_first_iteration || _time_cell != _time_cell_in_texture) {
 		// bind offscreen framebuffers for the mesh
 		glBindFramebuffer(GL_FRAMEBUFFER, _meshFB[_meshIteration]);
-		glClearColor(1.0f, 0.0f, 0.0f, 1.0f);
+		glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
 		glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
 
 		// bind the program (linked shaders) to render off screen
@@ -206,7 +229,11 @@ void FlowVis::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
 
 		if (_blendOn) {
 			glEnable(GL_BLEND);
-			glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+			// use different blending for seeding textures
+			if (_currentImage <= _texImages[0])
+				glBlendFunc(GL_SRC_ALPHA, GL_DST_ALPHA);
+			else 
+				glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 		}
 		else {
 			glDisable(GL_BLEND);
@@ -221,7 +248,7 @@ void FlowVis::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
 
 		if (_blendOn) {
 			// Draw initial texture into a quad (NDC) for blending
-			_prgMesh.setUniformValue("alpha", 0.2f);
+			_prgMesh.setUniformValue("alpha", 0.1f);
 			glBindVertexArray(_vaoQuad);
 			glBindTexture(GL_TEXTURE_2D, _currentImage);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
@@ -235,6 +262,7 @@ void FlowVis::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
 
 	// rebind default framebuffer
 	glBindFramebuffer(GL_FRAMEBUFFER, buffer);
+	glDisable(GL_BLEND);
 
 	// Render: draw triangles with a texture
 	_prg.bind();
@@ -249,16 +277,14 @@ void FlowVis::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
 	modViewMesh.translate(0.0f, 0.5f, 0.0f);
 	_prg.setUniformValue("modelview_matrix", modViewMesh);
 	glBindTexture(GL_TEXTURE_2D, _meshTexture[0]);
-	// check width and height of texture for debugging
-	int widthTex, heightTex;
-	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_WIDTH, &widthTex);
-	glGetTexLevelParameteriv(GL_TEXTURE_2D, 0, GL_TEXTURE_HEIGHT, &heightTex);
 	glDrawElements(GL_TRIANGLES, _indexCount, GL_UNSIGNED_INT, 0);
 
 	// a window (bottom) to show default texture used for texture advection
 	QMatrix4x4 modviewMatrix = V;
 	modviewMatrix.translate(0.0f, -0.6f, 0.0f);
 	_prg.setUniformValue("modelview_matrix", modviewMatrix);
+	//glBindTexture(GL_TEXTURE_2D, _currentImage);
+	// testing
 	glBindTexture(GL_TEXTURE_2D, _currentImage);
 	glDrawElements(GL_TRIANGLES, _indexCount, GL_UNSIGNED_INT, 0);
 	CG_ASSERT_GLCHECK();
@@ -335,10 +361,7 @@ QVector2D FlowVis::heun(float stepSize, QVector2D position) {
 	QVector2D speedNext = getFlowVector(result.x(), result.y(), _time_cell);
 
 	result = position + (stepSize * 0.5 * (speed + speedNext));
-	/*
-	if (position.x() == 0.0f && _stepSize > 0.26f)
-		result.setX(position.x() + 0.05f * (speed.x() + speedNext.x()) );
-	*/
+
 	return result;
 }
 
@@ -353,17 +376,54 @@ void FlowVis::createMesh() {
 	QVector<float> positions, normals, texcoords;
 	QVector<unsigned int> indices;
 	_indexCountMesh = 0;
+	QVector2D flowVec;
+	QVector3D pos;
+	float offset = 0.2f;
+
+	// add a border to the left edge to fix texture injection bug
+	for (int i = 0; i < NMESH_Y; i++) {
+		float x1 = 0;
+		float x2 = offset;
+
+		float y1 = DIST * i;
+		float y2 = y1 + DIST;
+
+		flowVec = QVector2D(x1, y2);
+		pos = QVector3D(vecToNDC(flowVec, width, height));
+		positions.append({ pos.x(), pos.y(), pos.z() });
+		normals.append({ 0.0f, 0.0f, 1.0f });
+		texcoords.append({ texTF(x1, width), texTF(y2, height) });
+
+		flowVec = heun(_stepSize, QVector2D(x2, y2));
+		pos = QVector3D(vecToNDC(flowVec, width, height));
+		positions.append({ pos.x(), pos.y(), pos.z() });
+		normals.append({ 0.0f, 0.0f, 1.0f });
+		texcoords.append({ texTF(x2, width), texTF(y2, height) });
+
+		flowVec = heun(_stepSize, QVector2D(x2, y1));
+		pos = QVector3D(vecToNDC(flowVec, width, height));
+		positions.append({ pos.x(), pos.y(), pos.z() });
+		normals.append({ 0.0f, 0.0f, 1.0f });
+		texcoords.append({ texTF(x2, width), texTF(y1, height) });
+
+		flowVec = QVector2D(x1, y1);
+		pos = QVector3D(vecToNDC(flowVec, width, height));
+		positions.append({ pos.x(), pos.y(), pos.z() });
+		normals.append({ 0.0f, 0.0f, 1.0f });
+		texcoords.append({ texTF(x1, width), texTF(y1, height) });
+
+		indices.append({ _indexCountMesh, _indexCountMesh + 1, _indexCountMesh + 3, _indexCountMesh + 1, _indexCountMesh + 2, _indexCountMesh + 3 });
+		_indexCountMesh += 4;
+	}
 
 	for (int i = 0; i < NMESH_X; i++) {
-		float x1 = DIST * i;
+		// plus offset when using the border
+		float x1 = DIST * i + offset;
 		float x2 = x1 + DIST;
 
 		for (int j = 0; j < NMESH_Y; j++) {
 			float y1 = DIST * j;
 			float y2 = y1 + DIST;
-
-			QVector3D pos;
-			QVector2D flowVec;
 
 			flowVec = heun(_stepSize, QVector2D(x1, y2));
 			pos = QVector3D(vecToNDC(flowVec, width, height));
@@ -409,7 +469,7 @@ void FlowVis::fboTexResize() {
 
 	for (int i = 0; i < 2; i++) {
 		glBindTexture(GL_TEXTURE_2D, _meshTexture[i]);
-		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA32F, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
+		glTexImage2D(GL_TEXTURE_2D, 0, GL_RGBA8, SCR_WIDTH, SCR_HEIGHT, 0, GL_RGBA, GL_FLOAT, NULL);
 	}
 }
 
@@ -429,12 +489,10 @@ void FlowVis::keyPressEvent(QKeyEvent* event)
 		_first_iteration = true;
 		_meshIteration = false;
 		_blendOn = !_blendOn;
-		if (_blendOn) {
+		if (_blendOn)
 			_stepSize = 1.0f;
-		}
-		else {
-			_stepSize = 0.3f;
-		}
+		else
+			_stepSize = 0.5f;
 		break;
 	case Qt::Key_Plus:
 		_nMesh++;

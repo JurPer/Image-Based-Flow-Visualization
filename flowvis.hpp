@@ -38,7 +38,6 @@ private:
 	int _nMesh;
 	float _stepSize;
 	// OpenGL objects
-	unsigned int _texture;
 	QVector<unsigned int> _texImages;
 	unsigned int _currentImage;
 	unsigned int _vertexArrayObject;
