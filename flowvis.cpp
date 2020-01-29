@@ -99,16 +99,17 @@ void FlowVis::initializeGL()
 	QVector<float> rgba(4, 1.0f);	
 	// initialize random seed
 	srand(time(NULL));
+
+	// loop over the data to mark critical points and insert random noise in green
 	for (int y = 0; y < _y_cells; y++) {
 		for (int x = 0; x < _x_cells; x++) {
 			float length = getFlowVector(_time_cell, y, x).length();
-			// critical point if vector length zero
+			// paint critical point in red
 			if (length <= 0.01)
 				rgba = { 1.0f, 0.0f, 0.0f, 1.0f };
 			else if (rand() % 100 < 1) {
 				rgba = { 0.0f, 1.0f, 0.0f, 1.0f };
-			}
-			else
+			} else
 				rgba = { 0.0f, 0.0f, 0.0f, 1.0f };
 			vectorsRGBA += rgba;
 		}
@@ -312,7 +313,7 @@ QVector2D vecToNDC(QVector2D vector, float width, float height) {
 }
 
 /* Bilinearly interpolates coordinates before getting the flow vector */
-QVector2D FlowVis::getFlowVector(float x, float y, int t) {
+QVector2D FlowVis::getFlowVector(float x, float y, float t) {
 	/*
 	// Nearest Neighbour
 	int cx = round(x);
@@ -323,6 +324,9 @@ QVector2D FlowVis::getFlowVector(float x, float y, int t) {
 	return getFlowVector(t, cy, cx);
 	*/
 
+	int ct = round(t);
+	ct = std::min(std::max(ct, 0), _t_cells - 1);
+
 	// Biliniear Interpolation in 2D as it is described in the SciVis script part 02 page 20
 	int x00 = floor(x);
 	x00 = std::min(std::max(x00, 0), _x_cells - 1);
@@ -332,10 +336,10 @@ QVector2D FlowVis::getFlowVector(float x, float y, int t) {
 	y00 = std::min(std::max(y00, 0), _y_cells - 1);
 	int y01 = ceil(y);
 	y01 = std::min(std::max(y01, 0), _y_cells - 1);
-	QVector2D f00 = getFlowVector(t, y00, x00);
-	QVector2D f10 = getFlowVector(t, y00, x10);
-	QVector2D f01 = getFlowVector(t, y01, x00);
-	QVector2D f11 = getFlowVector(t, y01, x10);
+	QVector2D f00 = getFlowVector(ct, y00, x00);
+	QVector2D f10 = getFlowVector(ct, y00, x10);
+	QVector2D f01 = getFlowVector(ct, y01, x00);
+	QVector2D f11 = getFlowVector(ct, y01, x10);
 	float alpha = 0.0f;
 	if (x10 - x00 != 0)
 		alpha = (x - x00) / (x10 - x00);
@@ -352,12 +356,13 @@ QVector2D FlowVis::getFlowVector(float x, float y, int t) {
 
 /* Use Heun integration to better approximate flow vectors */
 QVector2D FlowVis::heun(float stepSize, QVector2D position) {
+	float timeCell = _time_cell;
 	QVector2D result;
-	QVector2D speed = getFlowVector(position.x(), position.y(), _time_cell);
+	QVector2D speed = getFlowVector(position.x(), position.y(), timeCell);
 
-	result = position + stepSize * getFlowVector(position.x(), position.y(), _time_cell);
+	result = position + stepSize * getFlowVector(position.x(), position.y(), timeCell);
 	// TODO: timecell + stepsize?
-	QVector2D speedNext = getFlowVector(result.x(), result.y(), _time_cell);
+	QVector2D speedNext = getFlowVector(result.x(), result.y(), timeCell + stepSize);
 
 	result = position + (stepSize * 0.5 * (speed + speedNext));
 

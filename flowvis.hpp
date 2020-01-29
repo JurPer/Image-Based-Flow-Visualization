@@ -51,7 +51,7 @@ private:
 	QOpenGLShaderProgram _prgMesh;
 
 	QVector2D getFlowVector(int t, int y, int x);
-	QVector2D getFlowVector(float x, float y, int  t);
+	QVector2D getFlowVector(float x, float y, float t);
 	QVector2D heun(float stepSize, QVector2D position);
 	void createMesh();
 	void fboTexResize();
