@@ -35,6 +35,9 @@ FlowVis::FlowVis() :
 		fread(_data.data(), 1, _data.size() * sizeof(float), f);
 		fclose(f);
 	}
+	_identity_matrix = QMatrix();
+	_ortho_matrix = QMatrix();
+	_ortho_matrix.ortho(0.0f, _x_cells, 0.0f, _y_cells, 1.0f, -1.0f);
 }
 
 FlowVis::~FlowVis()
@@ -107,7 +110,7 @@ void FlowVis::initializeGL()
 			// paint critical point in red
 			if (length <= 0.01)
 				rgba = { 1.0f, 0.0f, 0.0f, 1.0f };
-			else if (rand() % 100 < 1) {
+			else if (rand() % 60 < 1) {
 				rgba = { 0.0f, 1.0f, 0.0f, 1.0f };
 			} else
 				rgba = { 0.0f, 0.0f, 0.0f, 1.0f };
@@ -241,6 +244,7 @@ void FlowVis::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
 
 		// Draw distorted mesh with either the current image or the previous result
 		_prgMesh.setUniformValue("alpha", 1.0f);
+		_prgMesh.setUniformValue("projection_matrix", _ortho_matrix);
 		glBindVertexArray(_vaoMesh);
 		glBindTexture(GL_TEXTURE_2D, _first_iteration ? _currentImage : _meshTexture[!_meshIteration]);
 		glDrawElements(GL_TRIANGLES, _indexCountMesh, GL_UNSIGNED_INT, 0);
@@ -249,6 +253,7 @@ void FlowVis::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
 		if (_blendOn) {
 			// Draw initial texture into a quad (NDC) for blending
 			_prgMesh.setUniformValue("alpha", 0.1f);
+			_prgMesh.setUniformValue("projection_matrix", _identity_matrix);
 			glBindVertexArray(_vaoQuad);
 			glBindTexture(GL_TEXTURE_2D, _currentImage);
 			glDrawElements(GL_TRIANGLES, 6, GL_UNSIGNED_INT, 0);
@@ -276,15 +281,13 @@ void FlowVis::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
 	QMatrix4x4 modViewMesh = V;
 	modViewMesh.translate(0.0f, 0.5f, 0.0f);
 	_prg.setUniformValue("modelview_matrix", modViewMesh);
-	glBindTexture(GL_TEXTURE_2D, _meshTexture[0]);
+	glBindTexture(GL_TEXTURE_2D, _meshTexture[!_meshIteration]);
 	glDrawElements(GL_TRIANGLES, _indexCount, GL_UNSIGNED_INT, 0);
 
 	// a window (bottom) to show default texture used for texture advection
 	QMatrix4x4 modviewMatrix = V;
 	modviewMatrix.translate(0.0f, -0.6f, 0.0f);
 	_prg.setUniformValue("modelview_matrix", modviewMatrix);
-	//glBindTexture(GL_TEXTURE_2D, _currentImage);
-	// testing
 	glBindTexture(GL_TEXTURE_2D, _currentImage);
 	glDrawElements(GL_TRIANGLES, _indexCount, GL_UNSIGNED_INT, 0);
 	CG_ASSERT_GLCHECK();
@@ -297,33 +300,13 @@ void FlowVis::paintGL(const QMatrix4x4& P, const QMatrix4x4& V, int w, int h)
 	}
 }
 
-/* Transforms an NDC input into tex coords between 0.0 and 1.0 */
-float texTF(float input) {
-	return (input + 1.0f) / 2.0f;
-}
-
 /* Transforms a [0, dimLength] input into tex coords between 0.0 and 1.0 */
 float texTF(float input, float dimLength) {
 	return input / dimLength;
 }
 
-/* Transforms the vector coordinates from [0, width || height] into NDC according to width and height */
-QVector2D vecToNDC(QVector2D vector, float width, float height) {
-	return QVector2D(vector.x() * 2 / width - 1.0f, vector.y() * 2 / height - 1.0f);
-}
-
 /* Bilinearly interpolates coordinates before getting the flow vector */
 QVector2D FlowVis::getFlowVector(float x, float y, float t) {
-	/*
-	// Nearest Neighbour
-	int cx = round(x);
-	int cy = round(y);
-	cx = std::min(std::max(cx, 0), _x_cells - 1);
-	cy = std::min(std::max(cy, 0), _y_cells - 1);
-
-	return getFlowVector(t, cy, cx);
-	*/
-
 	int ct = round(t);
 	ct = std::min(std::max(ct, 0), _t_cells - 1);
 
@@ -351,7 +334,17 @@ QVector2D FlowVis::getFlowVector(float x, float y, float t) {
 		beta = (y - y00) / (y01 - y00);
 	QVector2D f = beta * f1 + (1 - beta) * f0;
 
-	return f;
+	return f;	
+	
+	/*
+	// Nearest Neighbour
+	int cx = round(x);
+	int cy = round(y);
+	cx = std::min(std::max(cx, 0), _x_cells - 1);
+	cy = std::min(std::max(cy, 0), _y_cells - 1);
+
+	return getFlowVector(t, cy, cx);
+	*/
 }
 
 /* Use Heun integration to better approximate flow vectors */
@@ -368,7 +361,7 @@ QVector2D FlowVis::heun(float stepSize, QVector2D position) {
 	return result;
 }
 
-/* Creates a mesh and distorts it in the direction of the flow (in NDC) */
+/* Creates a mesh and distorts it in the direction of the flow */
 void FlowVis::createMesh() {
 	float width = _x_cells;
 	float height = _y_cells;
@@ -379,11 +372,10 @@ void FlowVis::createMesh() {
 	QVector<float> positions, normals, texcoords;
 	QVector<unsigned int> indices;
 	_indexCountMesh = 0;
-	QVector2D flowVec;
 	QVector3D pos;
-	float offset = 0.2f;
+	float offset = 0.1f;
 
-	// add a border to the left edge to fix texture injection bug
+	// add a border to the left edge to fix texture/background injection bug
 	for (int i = 0; i < NMESH_Y; i++) {
 		float x1 = 0;
 		float x2 = offset;
@@ -391,26 +383,22 @@ void FlowVis::createMesh() {
 		float y1 = DIST * i;
 		float y2 = y1 + DIST;
 
-		flowVec = QVector2D(x1, y2);
-		pos = QVector3D(vecToNDC(flowVec, width, height));
+		pos = QVector3D(QVector2D(x1, y2));
 		positions.append({ pos.x(), pos.y(), pos.z() });
 		normals.append({ 0.0f, 0.0f, 1.0f });
 		texcoords.append({ texTF(x1, width), texTF(y2, height) });
 
-		flowVec = heun(_stepSize, QVector2D(x2, y2));
-		pos = QVector3D(vecToNDC(flowVec, width, height));
+		pos = QVector3D(heun(_stepSize, QVector2D(x2, y2)));
 		positions.append({ pos.x(), pos.y(), pos.z() });
 		normals.append({ 0.0f, 0.0f, 1.0f });
 		texcoords.append({ texTF(x2, width), texTF(y2, height) });
 
-		flowVec = heun(_stepSize, QVector2D(x2, y1));
-		pos = QVector3D(vecToNDC(flowVec, width, height));
+		pos = QVector3D(heun(_stepSize, QVector2D(x2, y1)));
 		positions.append({ pos.x(), pos.y(), pos.z() });
 		normals.append({ 0.0f, 0.0f, 1.0f });
 		texcoords.append({ texTF(x2, width), texTF(y1, height) });
 
-		flowVec = QVector2D(x1, y1);
-		pos = QVector3D(vecToNDC(flowVec, width, height));
+		pos = QVector3D(QVector2D(x1, y1));
 		positions.append({ pos.x(), pos.y(), pos.z() });
 		normals.append({ 0.0f, 0.0f, 1.0f });
 		texcoords.append({ texTF(x1, width), texTF(y1, height) });
@@ -428,26 +416,22 @@ void FlowVis::createMesh() {
 			float y1 = DIST * j;
 			float y2 = y1 + DIST;
 
-			flowVec = heun(_stepSize, QVector2D(x1, y2));
-			pos = QVector3D(vecToNDC(flowVec, width, height));
+			pos = QVector3D(heun(_stepSize, QVector2D(x1, y2)));
 			positions.append({ pos.x(), pos.y(), pos.z() });
 			normals.append({ 0.0f, 0.0f, 1.0f });
 			texcoords.append({ texTF(x1, width), texTF(y2, height) });
 
-			flowVec = heun(_stepSize, QVector2D(x2, y2));
-			pos = QVector3D(vecToNDC(flowVec, width, height));
+			pos = QVector3D(heun(_stepSize, QVector2D(x2, y2)));
 			positions.append({ pos.x(), pos.y(), pos.z() });
 			normals.append({ 0.0f, 0.0f, 1.0f });
 			texcoords.append({ texTF(x2, width), texTF(y2, height) });
 
-			flowVec = heun(_stepSize, QVector2D(x2, y1));
-			pos = QVector3D(vecToNDC(flowVec, width, height));
+			pos = QVector3D(heun(_stepSize, QVector2D(x2, y1)));
 			positions.append({ pos.x(), pos.y(), pos.z() });
 			normals.append({ 0.0f, 0.0f, 1.0f });
 			texcoords.append({ texTF(x2, width), texTF(y1, height) });
 
-			flowVec = heun(_stepSize, QVector2D(x1, y1));
-			pos = QVector3D(vecToNDC(flowVec, width, height));
+			pos = QVector3D(heun(_stepSize, QVector2D(x1, y1)));
 			positions.append({ pos.x(), pos.y(), pos.z() });
 			normals.append({ 0.0f, 0.0f, 1.0f });
 			texcoords.append({ texTF(x1, width), texTF(y1, height) });
@@ -518,12 +502,11 @@ void FlowVis::keyPressEvent(QKeyEvent* event)
 		_stepSize += 0.05;
 		break;
 	}
-	// Key pressed is between 1 and 9; change the current image and reset
+	// Key pressed is between 1 and 9; change the current image
 	if (key >= 49 && key <= 57) {
 		_currentImage = _texImages[(key - 49) % _texImages.size()];
 		_first_iteration = true;
 		_meshIteration = false;
-		//navigator()->reset();
 	}
 }
 

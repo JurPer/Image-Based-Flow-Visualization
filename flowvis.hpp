@@ -37,6 +37,8 @@ private:
 	int _screenHeight;
 	int _nMesh;
 	float _stepSize;
+	QMatrix4x4 _identity_matrix;
+	QMatrix4x4 _ortho_matrix;
 	// OpenGL objects
 	QVector<unsigned int> _texImages;
 	unsigned int _currentImage;
