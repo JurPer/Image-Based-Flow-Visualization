@@ -11,7 +11,6 @@
         <file alias="whiteNoiseResized">images/whiteNoise.png</file>
         <file alias="checkerBoard">images/checkerboard.png</file>
         <file alias="perlinNoise">images/perlinNoise.png</file>
-        <file alias="simplexNoise">images/simplexNoise.png</file>
         <file alias="grid">images/grid.png</file>
         <file alias="grid_biggest">images/grid_biggest.png</file>
         <file alias="seeding_points">images/seeding_points.png</file>

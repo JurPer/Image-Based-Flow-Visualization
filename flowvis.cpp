@@ -122,7 +122,6 @@ void FlowVis::initializeGL()
 	_texImages.append(Cg::loadTexture(":/img/whiteNoise", false, false));
 	_texImages.append(Cg::loadTexture(":/img/whiteNoiseResized", false, false));
 	_texImages.append(Cg::loadTexture(":/img/perlinNoise", false, false));
-	_texImages.append(Cg::loadTexture(":/img/simplexNoise", false, false));
 	_texImages.append(Cg::loadTexture(":/img/grid_biggest", false, false));
 	_texImages.append(Cg::loadTexture(":/img/grid_big", false, false));
 	_texImages.append(Cg::loadTexture(":/img/grid", false, false));
